@@ -31,7 +31,7 @@ from tensorflow.keras import initializers
 
 # ## k-SAT QAOA
 
-k = 4 #length of clauses
+k = 3 #length of clauses
 n_var = 6 #number of variables
 nqubits = n_var #number fo qubits in the circuit
 
@@ -308,7 +308,7 @@ def cost_hamiltonian(qubits, clauses):
 
 # +
 qaoa_circuit = cirq.Circuit()
-p = 3 #number of layers. When in doubt, stay on the lower side
+p = 4 #number of layers. When in doubt, stay on the lower side
 
 num_param = 2 * p 
 parameters = symbols("q0:%d" % num_param)
@@ -342,7 +342,7 @@ ksat.trainable_variables[0].assign([0.001 * rd.random() for i in range(2*p)]) #i
 losses = []
 error = 100
 error_goal = 0
-tol = 1e-5
+tol = 1e-6
 while abs(error_goal - error) > tol:
     
     error_goal = error    
@@ -357,7 +357,6 @@ while abs(error_goal - error) > tol:
 
     print('absolute value of (error_goal - error) is ' + str(abs(error_goal - error)), end = '\r')
 
-'''
 plt.figure(figsize=(6,2))
 plt.plot(losses, color = "green")
 plt.title(str(k)+'-SAT QAOA with '+str(n_var)+' variables')
@@ -365,8 +364,6 @@ plt.xlabel("Epoch")
 plt.ylabel("Loss")
 plt.show()
 #plt.savefig("TSP_losses")
-'''
-
 
 def to_dec(x):
     return int("".join(str(i) for i in x), 2) 
@@ -392,7 +389,7 @@ for bits in output.values:
 
 valid_keys
 
-'''
+# +
 xticks = range(0, 2**nqubits)
 xtick_labels = list(map(lambda x: format(x, "0"+str(nqubits)+"b"), xticks))
 bins = np.arange(0, 2**nqubits + 1) - 0.5
@@ -402,6 +399,7 @@ plt.xticks(xticks, xtick_labels, rotation="vertical")
 plt.hist(data, bins=bins, color = "chartreuse", lw=0)
 plt.savefig('hist_custom_sat.pdf')
 plt.show()
-'''
+
+# -
 
 
