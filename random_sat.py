@@ -13,6 +13,7 @@
 #     name: python3
 # ---
 
+# +
 import numpy as np
 import math
 import random as rd
@@ -29,14 +30,17 @@ import cirq
 from cirq.contrib.svg import SVGCircuit
 from tensorflow.keras import initializers
 
+from numpy.random import random
+# -
+
 # ## k-SAT QAOA
 
 k = 3 #length of clauses
-n_var = 6 #number of variables
-nqubits = n_var #number fo qubits in the circuit
-
-all_vars = [i for i in range(-n_var,n_var+1)]
+n_var = 3 #number of variables
+nqubits = n_var #number of qubits in the circuit
+all_vars = [i for i in range(0,n_var+1)]
 all_vars = [i for i in all_vars if i != 0]
+l = [-1, 1]
 
 # +
 r_by_k = {2 : 1, 3: 6.43, 4: 20.43, 6: 70.21, 8: 176.54, 10: 708.92, 16: 45425.2}
@@ -46,7 +50,16 @@ def generate_instance(k: int, n: int) -> np.ndarray:
     if not (r := r_by_k.get(k)):
         raise ValueError(f"k must be in {list(r_by_k)} (got {k})")
     m = poisson(r*n).rvs()
-    return np.random.choice(all_vars, size=(m, k))
+    #return np.random.choice(all_vars, size=(m, k))
+    all_variables = []
+    all_signs = []
+    for i in range(m):
+        all_signs.append([rd.choice(l) for i in range(k)])
+        all_variables.append(rd.sample(all_vars, k))
+
+    all_variables = np.array(all_variables)
+    all_signs = np.array(all_signs)
+    return np.multiply(all_variables, all_signs)
 
 
 # -
@@ -272,15 +285,12 @@ def hamiltonian_circuit(circuit, qubits, par, clauses):
     for elem in clauses:  
         if (type(elem) is tuple) == False:
             pass # ignoring the constant term in the Hamiltonian
-
         else:
             coef = elem[0]
             z_inds = elem[1]
             if len(z_inds) == 1:
-
                 circuit.append(cirq.rz(coef*par).on(qubits[z_inds[0]]))
             else:
-
                 circuit.append(z_string_gates(z_inds,coef*par))
     return circuit
 
@@ -308,7 +318,7 @@ def cost_hamiltonian(qubits, clauses):
 
 # +
 qaoa_circuit = cirq.Circuit()
-p = 4 #number of layers. When in doubt, stay on the lower side
+p = 5 #number of layers. When in doubt, stay on the lower side
 
 num_param = 2 * p 
 parameters = symbols("q0:%d" % num_param)
@@ -334,10 +344,12 @@ inputs = tfq.convert_to_tensor([initial])
 ins = tf.keras.layers.Input(shape = (), dtype = tf.dtypes.string)
 outs = tfq.layers.PQC(qaoa_circuit, cost)(ins)
 ksat = tf.keras.models.Model(inputs = ins, outputs = outs)
-opt = tf.keras.optimizers.Adam(learning_rate = 0.01)
+opt = tf.keras.optimizers.Adam(learning_rate = 0.001)
 
 ksat.trainable_variables[0].assign([0.001 * rd.random() for i in range(2*p)]) #initializing angles with some small noise
 # -
+
+cost.matrix()
 
 losses = []
 error = 100
@@ -374,7 +386,7 @@ params = ksat.trainable_variables
 print(params)
 
 sample_circuit = tfq.layers.AddCircuit()(inputs, append=qaoa_circuit)
-output = tfq.layers.Sample()(sample_circuit, symbol_names=parameters, symbol_values=params, repetitions = 1000)
+output = tfq.layers.Sample()(sample_circuit, symbol_names=parameters, symbol_values=params, repetitions = 2048)
 
 quantum_preds = []
 data = []
@@ -394,12 +406,11 @@ xticks = range(0, 2**nqubits)
 xtick_labels = list(map(lambda x: format(x, "0"+str(nqubits)+"b"), xticks))
 bins = np.arange(0, 2**nqubits + 1) - 0.5
 
-plt.figure(figsize=(15,2))
+plt.figure(figsize=(20,2))
 plt.xticks(xticks, xtick_labels, rotation="vertical")
 plt.hist(data, bins=bins, color = "chartreuse", lw=0)
-plt.savefig('hist_custom_sat.pdf')
+#plt.savefig('hist_custom_sat.pdf')
 plt.show()
 
 # -
-
 
