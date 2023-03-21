@@ -13,7 +13,6 @@
 #     name: python3
 # ---
 
-# +
 import numpy as np
 import math
 import random as rd
@@ -29,21 +28,20 @@ import tensorflow_quantum as tfq
 import cirq
 from cirq.contrib.svg import SVGCircuit
 from tensorflow.keras import initializers
-
+from numpy import linalg as LA
 from numpy.random import random
-# -
+from random import choices
 
 # ## k-SAT QAOA
 
 k = 3 #length of clauses
-n_var = 3 #number of variables
+n_var = 6 #number of variables
 nqubits = n_var #number of qubits in the circuit
-all_vars = [i for i in range(0,n_var+1)]
+all_vars = [i for i in range(-n_var,n_var+1)]
 all_vars = [i for i in all_vars if i != 0]
-l = [-1, 1]
 
 # +
-r_by_k = {2 : 1, 3: 6.43, 4: 20.43, 6: 70.21, 8: 176.54, 10: 708.92, 16: 45425.2}
+r_by_k = {2 : 1, 3: 6.43, 4: 20.43, 5 : 45.7, 6: 70.21, 8: 176.54, 10: 708.92, 16: 45425.2}
 
 def generate_instance(k: int, n: int) -> np.ndarray:
     #generate an instance of random k-SAT with n variables in the satisfiability threshold
@@ -54,16 +52,15 @@ def generate_instance(k: int, n: int) -> np.ndarray:
     all_variables = []
     all_signs = []
     for i in range(m):
-        all_signs.append([rd.choice(l) for i in range(k)])
-        all_variables.append(rd.sample(all_vars, k))
+        #all_signs.append([rd.choice(l) for i in range(k)])
+        all_variables.append(choices(all_vars, k = k))
 
     all_variables = np.array(all_variables)
-    all_signs = np.array(all_signs)
-    return np.multiply(all_variables, all_signs)
+    #all_signs = np.array(all_signs)
+    return all_variables
 
 
-# -
-
+# +
 def dimacs_writer(dimacs_filename, cnf_array):
     #writes the dimacs file with the CNF
     cnf = cnf_array
@@ -83,7 +80,6 @@ def dimacs_writer(dimacs_filename, cnf_array):
             else: 
                 s = ' '.join(str(x) for x in line)+' 0 \n'
                 f.write(s)
-
 
 class Verifier():
     #verifier from Qiskit page, takes a bit string and checks if cnf is satisfied
@@ -112,8 +108,6 @@ class Verifier():
                 return False
         return True
 
-
-# +
 def generate_binary_strings(bit_count):
     binary_strings = []
     def genbin(n, bs=''):
@@ -251,7 +245,6 @@ def clause_transformer(clause):
 total_clause
 
 clause_to_circ = clause_transformer(total_clause)
-clause_to_circ
 
 # +
 qubits = []
@@ -263,8 +256,7 @@ qubits = list(reversed(qubits)) #don't know why
 all_qubits = [i for i in range(nqubits)]
 
 
-# -
-
+# +
 def z_string_gates(z_inds, par):
     #here we write z strings as a single parametrized z rotation and cnots
     z_string = []
@@ -280,7 +272,6 @@ def z_string_gates(z_inds, par):
     z_string.append(cnot_gates[len(cnot_gates) - 1::-1])
     return z_string
 
-
 def hamiltonian_circuit(circuit, qubits, par, clauses): 
     for elem in clauses:  
         if (type(elem) is tuple) == False:
@@ -294,12 +285,10 @@ def hamiltonian_circuit(circuit, qubits, par, clauses):
                 circuit.append(z_string_gates(z_inds,coef*par))
     return circuit
 
-
 def mixing_circuit(circuit, qubits, par):
     for i in range(len(qubits)):
         circuit.append(cirq.rx(par).on(qubits[i]))
     return circuit
-
 
 def cost_hamiltonian(qubits, clauses):
     h = 0
@@ -318,7 +307,7 @@ def cost_hamiltonian(qubits, clauses):
 
 # +
 qaoa_circuit = cirq.Circuit()
-p = 5 #number of layers. When in doubt, stay on the lower side
+p = 8 #number of layers. When in doubt, stay on the lower side
 
 num_param = 2 * p 
 parameters = symbols("q0:%d" % num_param)
@@ -328,10 +317,14 @@ for i in range(p):
     qaoa_circuit = hamiltonian_circuit(qaoa_circuit, qubits, parameters[2 * i], clause_to_circ)
     qaoa_circuit = mixing_circuit(qaoa_circuit, qubits, parameters[2 * i + 1])
 
-# +
-#SVGCircuit(qaoa_circuit)
+class MyLRSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
 
-# +
+    def __init__(self, initial_learning_rate):
+        self.initial_learning_rate = initial_learning_rate
+
+    def __call__(self, step):
+        return self.initial_learning_rate / (step+1)
+
 cost = cost_hamiltonian(qubits, clause_to_circ)
 
 initial = cirq.Circuit()
@@ -340,25 +333,29 @@ for qubit in qubits:
     initial.append(cirq.H(qubit)) #applying Hadamard to all qubits before running circuit
 
 #setting up the model
+lr = 1e-1
+
 inputs = tfq.convert_to_tensor([initial])
 ins = tf.keras.layers.Input(shape = (), dtype = tf.dtypes.string)
 outs = tfq.layers.PQC(qaoa_circuit, cost)(ins)
 ksat = tf.keras.models.Model(inputs = ins, outputs = outs)
-opt = tf.keras.optimizers.Adam(learning_rate = 0.001)
+opt = tf.keras.optimizers.Adam(learning_rate=MyLRSchedule(lr))
+#ksat.trainable_variables[0].assign([1e-1*rd.random() for i in range(2*p)]) #initializing angles with some small noise
 
-ksat.trainable_variables[0].assign([0.001 * rd.random() for i in range(2*p)]) #initializing angles with some small noise
-# -
+# +
+#SVGCircuit(qaoa_circuit)
 
-cost.matrix()
+# +
+cost_m = cost.matrix()
+gs_energy = np.real(min(LA.eig(cost_m)[0]))
 
 losses = []
-error = 100
-error_goal = 0
-tol = 1e-6
-while abs(error_goal - error) > tol:
-    
-    error_goal = error    
-    
+error = 1e2*rd.random()
+tol = 1e-2
+
+while abs(gs_energy - error) > tol:
+
+    previous_error = error   
     with tf.GradientTape() as tape:
         error = ksat(inputs)
     
@@ -367,10 +364,15 @@ while abs(error_goal - error) > tol:
     error = error.numpy()[0,0]
     losses.append(error)
 
-    print('absolute value of (error_goal - error) is ' + str(abs(error_goal - error)), end = '\r')
+    print('absolute value of (ground state energy - error) is ' + str(abs(gs_energy - error)), end = '\r')
+    if abs(error - previous_error) < 1e-10:
+        print('\n got stuck!')
+        break
+# -
 
 plt.figure(figsize=(6,2))
 plt.plot(losses, color = "green")
+plt.axhline(y = gs_energy, color = 'black', linestyle = 'dashed')
 plt.title(str(k)+'-SAT QAOA with '+str(n_var)+' variables')
 plt.xlabel("Epoch")
 plt.ylabel("Loss")
@@ -406,11 +408,10 @@ xticks = range(0, 2**nqubits)
 xtick_labels = list(map(lambda x: format(x, "0"+str(nqubits)+"b"), xticks))
 bins = np.arange(0, 2**nqubits + 1) - 0.5
 
-plt.figure(figsize=(20,2))
+plt.figure(figsize=(10,2))
 plt.xticks(xticks, xtick_labels, rotation="vertical")
 plt.hist(data, bins=bins, color = "chartreuse", lw=0)
 #plt.savefig('hist_custom_sat.pdf')
 plt.show()
-
 # -
 
